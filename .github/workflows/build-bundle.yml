@@ -1,4 +1,4 @@
-name: Build Unified Claude Marketing Skill
+name: Build Unified ChatGPT Marketing Skill
 
 on:
   push:
@@ -25,17 +25,17 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build and validate unified skill
+      - name: Build and validate ChatGPT skill
         run: python scripts/build_bundle.py
 
       - name: Show generated package
         run: |
-          unzip -l dist/claude-marketing-unified.zip | sed -n '1,160p'
+          unzip -l dist/chatgpt-marketing-unified.zip | sed -n '1,180p'
 
-      - name: Upload Claude skill ZIP
+      - name: Upload ChatGPT skill ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: claude-marketing-unified
-          path: dist/claude-marketing-unified.zip
+          name: chatgpt-marketing-unified
+          path: dist/chatgpt-marketing-unified.zip
           if-no-files-found: error
           retention-days: 90
