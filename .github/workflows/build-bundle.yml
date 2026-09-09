@@ -1,0 +1,41 @@
+name: Build Unified Claude Marketing Skill
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package-src/**'
+      - 'scripts/**'
+      - '.github/workflows/build-bundle.yml'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build and validate unified skill
+        run: python scripts/build_bundle.py
+
+      - name: Show generated package
+        run: |
+          unzip -l dist/claude-marketing-unified.zip | sed -n '1,160p'
+
+      - name: Upload Claude skill ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-marketing-unified
+          path: dist/claude-marketing-unified.zip
+          if-no-files-found: error
+          retention-days: 90
