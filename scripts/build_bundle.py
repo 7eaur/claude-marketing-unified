@@ -10,9 +10,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "package-src"
 BUILD_ROOT = ROOT / "build"
-PACKAGE = BUILD_ROOT / "claude-marketing-unified"
+PACKAGE = BUILD_ROOT / "chatgpt-marketing-unified"
 DIST = ROOT / "dist"
-ZIP_PATH = DIST / "claude-marketing-unified.zip"
+ZIP_PATH = DIST / "chatgpt-marketing-unified.zip"
 
 SOURCES = [
     {
@@ -38,7 +38,7 @@ SOURCES = [
         ],
     },
     {
-        "name": "Rebecca Rae Barton — Claude Marketing",
+        "name": "Rebecca Rae Barton — Marketing Skills",
         "repo": "thatrebeccarae/claude-marketing",
         "commit": "a8a63ec1341f05ec9c1e9cb52b4edeb14e3bdcba",
         "namespace": "rebecca",
@@ -49,7 +49,7 @@ SOURCES = [
         ],
     },
     {
-        "name": "Rob Palmer — Claude Code Copywriting Skills",
+        "name": "Rob Palmer — Copywriting Skills",
         "repo": "robpalmer99/claude-code-copywriting-skills",
         "commit": "7dbfd61e0f283ca09c20b3eca3657365e00e991d",
         "namespace": "rob",
@@ -64,7 +64,7 @@ SOURCES = [
 
 def download_archive(repo: str, commit: str, target: Path) -> None:
     url = f"https://github.com/{repo}/archive/{commit}.zip"
-    req = urllib.request.Request(url, headers={"User-Agent": "claude-marketing-unified-builder/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "chatgpt-marketing-unified-builder/2.0"})
     with urllib.request.urlopen(req, timeout=90) as response, target.open("wb") as fh:
         shutil.copyfileobj(response, fh)
 
@@ -85,11 +85,23 @@ def require_skill(path: Path) -> None:
         raise ValueError(f"Invalid skill frontmatter: {skill_file}")
 
 
+def convert_entry_to_playbook(module_dir: Path) -> None:
+    entry = module_dir / "SKILL.md"
+    if not entry.is_file():
+        raise FileNotFoundError(f"Missing module SKILL.md before conversion: {module_dir}")
+    playbook = module_dir / "PLAYBOOK.md"
+    if playbook.exists():
+        raise RuntimeError(f"PLAYBOOK.md already exists: {playbook}")
+    entry.rename(playbook)
+
+
 def write_manifest() -> None:
     lines = [
         "# Upstream Manifest",
         "",
-        "This file is generated from pinned upstream revisions. The builder fails if a selected module disappears or lacks `SKILL.md`.",
+        "This file is generated from pinned upstream revisions. The builder fails if a selected upstream module disappears or lacks its original `SKILL.md` entry file.",
+        "",
+        "In the final ChatGPT package, each selected upstream entry file is renamed to `PLAYBOOK.md` so the ZIP exposes only one installable root `SKILL.md`.",
         "",
     ]
     for source in SOURCES:
@@ -97,8 +109,8 @@ def write_manifest() -> None:
             f"## {source['name']}",
             f"- Repository: https://github.com/{source['repo']}",
             f"- Pinned commit: `{source['commit']}`",
-            f"- Namespace: `modules/{source['namespace']}/`",
-            "- Modules:",
+            f"- Packaged path: `references/playbooks/{source['namespace']}/`",
+            "- Playbooks:",
         ]
         for _, target_name in source["modules"]:
             lines.append(f"  - `{target_name}`")
@@ -121,7 +133,16 @@ def build() -> None:
 
     require_skill(PACKAGE)
 
-    with tempfile.TemporaryDirectory(prefix="marketing-skill-build-") as tmp:
+    # Move the original local quality module into ChatGPT supporting resources.
+    custom_src = PACKAGE / "modules" / "custom" / "anti-ai-quality"
+    require_skill(custom_src)
+    custom_dst = PACKAGE / "references" / "playbooks" / "custom" / "anti-ai-quality"
+    custom_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(custom_src), str(custom_dst))
+    convert_entry_to_playbook(custom_dst)
+    shutil.rmtree(PACKAGE / "modules", ignore_errors=True)
+
+    with tempfile.TemporaryDirectory(prefix="chatgpt-marketing-skill-build-") as tmp:
         tmpdir = Path(tmp)
         for index, source in enumerate(SOURCES, start=1):
             archive = tmpdir / f"source-{index}.zip"
@@ -140,7 +161,7 @@ def build() -> None:
             license_dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(license_src, license_dst)
 
-            namespace_root = PACKAGE / "modules" / source["namespace"]
+            namespace_root = PACKAGE / "references" / "playbooks" / source["namespace"]
             namespace_root.mkdir(parents=True, exist_ok=True)
 
             for source_dir, target_name in source["modules"]:
@@ -152,16 +173,26 @@ def build() -> None:
                 require_skill(src_module)
                 dst_module = namespace_root / target_name
                 if dst_module.exists():
-                    raise RuntimeError(f"Duplicate module target: {dst_module}")
+                    raise RuntimeError(f"Duplicate playbook target: {dst_module}")
                 shutil.copytree(src_module, dst_module)
+                convert_entry_to_playbook(dst_module)
 
-    require_skill(PACKAGE / "modules" / "custom" / "anti-ai-quality")
     write_manifest()
 
-    expected = 1 + sum(len(source["modules"]) for source in SOURCES)
-    discovered = list(PACKAGE.glob("modules/*/*/SKILL.md"))
-    if len(discovered) != expected:
-        raise RuntimeError(f"Expected {expected} specialist SKILL.md files, found {len(discovered)}")
+    expected_playbooks = 1 + sum(len(source["modules"]) for source in SOURCES)
+    discovered_playbooks = list(PACKAGE.glob("references/playbooks/*/*/PLAYBOOK.md"))
+    if len(discovered_playbooks) != expected_playbooks:
+        raise RuntimeError(
+            f"Expected {expected_playbooks} specialist PLAYBOOK.md files, found {len(discovered_playbooks)}"
+        )
+
+    # ChatGPT upload should expose one installable Skill manifest only.
+    skill_manifests = list(PACKAGE.rglob("SKILL.md"))
+    if skill_manifests != [PACKAGE / "SKILL.md"]:
+        raise RuntimeError(
+            "Final ChatGPT package must contain exactly one SKILL.md at the skill root. "
+            f"Found: {[str(p.relative_to(PACKAGE)) for p in skill_manifests]}"
+        )
 
     with zipfile.ZipFile(ZIP_PATH, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for path in sorted(PACKAGE.rglob("*")):
@@ -171,14 +202,18 @@ def build() -> None:
 
     with zipfile.ZipFile(ZIP_PATH) as zf:
         names = zf.namelist()
-        required_root = "claude-marketing-unified/SKILL.md"
+        required_root = "chatgpt-marketing-unified/SKILL.md"
         if required_root not in names:
-            raise RuntimeError("Built ZIP does not contain the required root SKILL.md")
-        if any(not name.startswith("claude-marketing-unified/") for name in names):
+            raise RuntimeError("Built ZIP does not contain the required ChatGPT root SKILL.md")
+        if any(not name.startswith("chatgpt-marketing-unified/") for name in names):
             raise RuntimeError("ZIP contains files outside the single skill root folder")
+        nested_manifests = [name for name in names if name.endswith("/SKILL.md") and name != required_root]
+        if nested_manifests:
+            raise RuntimeError(f"ZIP contains nested SKILL.md manifests: {nested_manifests}")
 
     print(f"Built: {ZIP_PATH}")
-    print(f"Specialist modules: {expected}")
+    print(f"Specialist playbooks: {expected_playbooks}")
+    print("Installable SKILL.md manifests: 1")
 
 
 if __name__ == "__main__":
